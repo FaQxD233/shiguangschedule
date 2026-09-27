@@ -5,8 +5,6 @@ on:
 
 jobs:
   build:
-    environment: Release-Signing
-
     runs-on: ubuntu-latest
 
     steps:
@@ -88,6 +86,86 @@ jobs:
           cd ${{ github.workspace }}
           rm -rf $TEMP_CLONE_DIR
 
+      - name: 注入上海师范大学(SHNU)适配 (Inject SHNU Adapter)
+        run: |
+          SCHOOLS_PATH="shared/assets/offline_repo/schools"
+          mkdir -p $SCHOOLS_PATH/resources
+          cp -r resources/SHNU $SCHOOLS_PATH/resources/
+          find $SCHOOLS_PATH/resources/SHNU -name "adapters.yaml" -exec rm -f {} \;
+          echo "--- SHNU 资源已注入, 开始向 school_index.pb 追加学校条目 ---"
+          python3 - <<'EOF'
+          PB = "shared/assets/offline_repo/index/school_index.pb"
+
+          def varint(n):
+              out = bytearray()
+              while True:
+                  b = n & 0x7F; n >>= 7
+                  if n: out.append(b | 0x80)
+                  else: out.append(b); return bytes(out)
+
+          def tag(f, wt): return varint((f << 3) | wt)
+          def s_field(f, s):
+              b = s.encode("utf-8"); return tag(f, 2) + varint(len(b)) + b
+          def v_field(f, n): return tag(f, 0) + varint(n)
+
+          def read_varint(data, pos):
+              r, sh = 0, 0
+              while True:
+                  b = data[pos]; r |= (b & 0x7F) << sh; pos += 1
+                  if not b & 0x80: return r, pos
+                  sh += 7
+
+          def iter_fields(data):
+              pos = 0
+              while pos < len(data):
+                  key, pos = read_varint(data, pos)
+                  f, wt = key >> 3, key & 7
+                  if wt == 0:
+                      v, pos = read_varint(data, pos); yield f, wt, v
+                  elif wt == 2:
+                      ln, pos = read_varint(data, pos); yield f, wt, data[pos:pos + ln]; pos += ln
+                  else:
+                      raise ValueError("wire type %d" % wt)
+
+          data = open(PB, "rb").read()
+          protocol_version, version_id, schools = None, None, []
+          for f, wt, v in iter_fields(data):
+              if f == 1: protocol_version = v
+              elif f == 2: version_id = v.decode()
+              elif f == 3: schools.append(v)
+
+          def school_id(chunk):
+              for f, wt, v in iter_fields(chunk):
+                  if f == 1: return v.decode()
+              return None
+
+          if any(school_id(c) == "SHNU" for c in schools):
+              print("SHNU 已存在于索引中, 跳过注入")
+          else:
+              adapter = (
+                  s_field(1, "SHNU_01")
+                  + s_field(2, "上海师范大学树维教务")
+                  + v_field(3, 2)
+                  + s_field(4, "shnu.js")
+                  + s_field(5, "https://course.shnu.edu.cn/eams/homeExt.action")
+                  + s_field(6, "上海师范大学本科生教务系统(course.shnu.edu.cn/eams)适配，登录统一身份认证后回到教务系统页面点击导入即可抓取课表，支持选择学期，自动写入上师大14节作息。非本校开发者适配，如有问题请提交issues。")
+                  + s_field(7, "ShiGuangSchedule")
+              )
+              school = (
+                  s_field(1, "SHNU")
+                  + s_field(2, "上海师范大学")
+                  + s_field(3, "S")
+                  + s_field(4, "SHNU")
+                  + tag(5, 2) + varint(len(adapter)) + adapter
+              )
+              out = v_field(1, protocol_version) + s_field(2, version_id)
+              for c in schools:
+                  out += tag(3, 2) + varint(len(c)) + c
+              out += tag(3, 2) + varint(len(school)) + school
+              open(PB, "wb").write(out)
+              print("SHNU 注入完成, school_index.pb 大小:", len(out))
+          EOF
+
       - name: 运行贡献者数据生成脚本 (Generate Contributors Data)
         run: |
           echo "--- 正在赋予脚本执行权限 ---"
@@ -114,18 +192,39 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: 解码并准备签名密钥文件 (Decode and Prepare Signing Key)
+      - name: 准备签名密钥 (无 secrets 时生成临时签名)
+        id: signing
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > androidApp/release.jks
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "--- 使用仓库配置的 Release 签名 ---"
+            echo "$KEYSTORE_B64" | base64 --decode > androidApp/release.jks
+            echo "store_pass=$STORE_PASSWORD" >> $GITHUB_OUTPUT
+            echo "key_alias=$KEY_ALIAS" >> $GITHUB_OUTPUT
+            echo "key_pass=$KEY_PASSWORD" >> $GITHUB_OUTPUT
+          else
+            echo "--- 未配置签名 secrets (fork 构建), 生成临时 keystore, 仅用于测试安装 ---"
+            keytool -genkeypair -v -keystore androidApp/release.jks \
+              -storepass shiguang123 -keypass shiguang123 -alias shiguang \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=ShiGuang Fork, OU=Dev, O=Dev, L=CN, ST=CN, C=CN"
+            echo "store_pass=shiguang123" >> $GITHUB_OUTPUT
+            echo "key_alias=shiguang" >> $GITHUB_OUTPUT
+            echo "key_pass=shiguang123" >> $GITHUB_OUTPUT
+          fi
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: 运行 Release 构建任务 (Build Release APK)
         run: |
           chmod +x ./gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file="${{ github.workspace }}/androidApp/release.jks" \
-            -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" \
-            -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" \
-            -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}" \
+            -Pandroid.injected.signing.store.password="${{ steps.signing.outputs.store_pass }}" \
+            -Pandroid.injected.signing.key.alias="${{ steps.signing.outputs.key_alias }}" \
+            -Pandroid.injected.signing.key.password="${{ steps.signing.outputs.key_pass }}" \
             --stacktrace
 
       - name: 上传构建产物到仓库 (Upload Artifact)
