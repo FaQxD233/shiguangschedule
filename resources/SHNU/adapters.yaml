@@ -4,6 +4,6 @@ adapters:
     adapter_name: "上海师范大学树维教务"
     category: "BACHELOR_AND_ASSOCIATE"
     asset_js_path: "shnu.js"
-    import_url: "https://course.shnu.edu.cn/eams/homeExt.action"
+    import_url: "https://course.shnu.edu.cn/"
     maintainer: "ShiGuangSchedule"
     description: "上海师范大学本科生教务系统(course.shnu.edu.cn/eams)适配，打开页面后请先完成统一身份认证登录，回到教务系统页面后点击导入即可抓取课表，支持选择学期，自动写入上师大14节作息。非本校开发者适配，如有问题请提交issues。"

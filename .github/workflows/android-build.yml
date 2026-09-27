@@ -147,7 +147,7 @@ jobs:
                   + s_field(2, "上海师范大学树维教务")
                   + v_field(3, 2)
                   + s_field(4, "shnu.js")
-                  + s_field(5, "https://course.shnu.edu.cn/eams/homeExt.action")
+                  + s_field(5, "https://course.shnu.edu.cn/")
                   + s_field(6, "上海师范大学本科生教务系统(course.shnu.edu.cn/eams)适配，登录统一身份认证后回到教务系统页面点击导入即可抓取课表，支持选择学期，自动写入上师大14节作息。非本校开发者适配，如有问题请提交issues。")
                   + s_field(7, "ShiGuangSchedule")
               )
