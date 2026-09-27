@@ -148,8 +148,8 @@ jobs:
                   + v_field(3, 2)
                   + s_field(4, "shnu.js")
                   + s_field(5, "https://course.shnu.edu.cn/")
-                  + s_field(6, "上海师范大学本科生教务系统(course.shnu.edu.cn/eams)适配，登录统一身份认证后回到教务系统页面点击导入即可抓取课表，支持选择学期，自动写入上师大14节作息。非本校开发者适配，如有问题请提交issues。")
-                  + s_field(7, "ShiGuangSchedule")
+                  + s_field(6, "上海师范大学本科生教务系统(course.shnu.edu.cn/eams)适配，支持选择学期，自动写入上师大14节作息。登录之后直接导入不用点网页，加载不出来不重要。")
+                  + s_field(7, "FaQxD233")
               )
               school = (
                   s_field(1, "SHNU")
